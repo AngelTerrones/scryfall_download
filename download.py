@@ -1,12 +1,25 @@
 import os
 import sys
+import time
 import json
+import glob
 import requests
 from tqdm import tqdm
 
 
-def card_exists(card_name: str):
-    return os.path.exists(f'images/{card_name}')
+s = requests.Session()
+
+
+def get_url(url: str):
+    ii = 3
+    while ii > 0:
+        try:
+            return s.get(url)
+        except:
+            ii = ii - 1
+            time.sleep(5)
+    return None
+
 
 def download_card(scryfallId: str, card_name: str, face: str):
     if os.path.exists(f'images/{card_name}'):
@@ -14,13 +27,16 @@ def download_card(scryfallId: str, card_name: str, face: str):
     dir1 = scryfallId[0]
     dir2 = scryfallId[1]
     url = f'https://cards.scryfall.io/png/{face}/{dir1}/{dir2}/{scryfallId}.png'
-    r = requests.get(url)
-    open(f'images/{card_name}', 'wb').write(r.content)
+    r = get_url(url)
+    if r != None:
+        open(f'images/{card_name}', 'wb').write(r.content)
 
 
 def check_hires(scryfallId: str):
-    r = requests.get(f'https://api.scryfall.com/cards/{scryfallId}')
-    return r.json()['highres_image']
+    r = get_url(f'https://api.scryfall.com/cards/{scryfallId}')
+    if r != None:
+        return r.json()['highres_image']
+    return False
 
 
 def download_images(database):
@@ -34,12 +50,13 @@ def download_images(database):
     # data is grouped by set
     for set_name, set_data in cards.items():
         print(f'Downloading set: {set_name}')
+        downloaded_cards = set(glob.glob(f'images/{set_name.lower()}-*'))
         for card in tqdm(set_data['cards']):
             number    = card['number']
             name      = card.get('faceName', card['name'])
             card_name = f'{set_name.lower()}-{number}-{name}.png'
             card_name = card_name.replace('//', '-')
-            if card_exists(card_name=card_name):
+            if card_name in downloaded_cards:
                 continue
             side       = card.get('side', 'a')
             face       = 'front' if side == 'a' else 'back'
