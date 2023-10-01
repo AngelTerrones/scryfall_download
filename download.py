@@ -9,7 +9,7 @@ from collections import namedtuple
 
 
 s = requests.Session()
-Card = namedtuple('Card', ['scryfallId', 'face'])
+Card = namedtuple('Card', ['scryfallId', 'face', 'nonfoil', 'art_id'])
 
 
 def get_url(url: str):
@@ -41,7 +41,10 @@ def check_hires(scryfallId: str):
     return False
 
 
-def download_images(database):
+def download_images(database: str, card_type: str):
+    if card_type not in ('cards', 'tokens'):
+        raise Exception('Valid card types: [cards, tokens]')
+
     os.makedirs('images', exist_ok=True)
     # Load the JSON
     with open(database, 'r', encoding='utf-8') as f:
@@ -51,31 +54,52 @@ def download_images(database):
     # Download
     # data is grouped by set
     for set_name, set_data in cards.items():
+        if set_data['isOnlineOnly']:
+            print(f'Set: {set_name} is OnlineOnly')
+            continue
         print(f'Downloading set: {set_name}')
         downloaded_cards = set(map(os.path.basename, glob.glob(f'images/{set_name.lower()}-*')))
         set_cards = dict()
-        for card in tqdm(set_data['cards']):
+        unique_art_id = set()
+        for card in tqdm(set_data[card_type], disable=len(set_data[card_type]) == 0):
+            language  = card['language']
             number    = card['number']
+            layout    = card['layout']
+            nonfoil   = card['finishes'] != ['nonfoil']
+            art_id    = card['identifiers']['scryfallIllustrationId']
             name      = card.get('faceName', card['name'])
             card_name = f'{set_name.lower()}-{number}-{name}.png'
             card_name = card_name.replace('//', '-')
+            # add the art ID
+            unique_art_id.add(art_id)
+            # ignore card if exists, or language != english
             if card_name in downloaded_cards:
                 continue
-            if card['language'] != 'English':
+            if language != 'English':
                 continue
-            side       = card.get('side', 'a')
-            face       = 'front' if side == 'a' else 'back'
+            # get the face. Meld cards does not have back, all are front faces...
+            if layout == 'meld':
+               face = 'front'
+            else:
+               face = 'front' if card.get('side', 'a') == 'a' else 'back'
+            # store card
             scryfallId = card['identifiers']['scryfallId']
-            set_cards[card_name] = Card(scryfallId=scryfallId, face=face)
-        disable = len(set_cards) == 0
-        for card_name, card in tqdm(set_cards.items(), disable=disable):
-            # check if the card has hires image
+            set_cards[card_name] = Card(
+                scryfallId=scryfallId,
+                face=face,
+                nonfoil=nonfoil,
+                art_id=art_id
+            )
+        for card_name, card in tqdm(set_cards.items(), disable=len(set_cards) == 0):
+            if card.nonfoil and card.art_id in unique_art_id:
+                continue
+            # check if the card has HiRes image
             if check_hires(scryfallId=card.scryfallId):
                 download_card(
-                    scryfallId=scryfallId,
                     card_name=card_name,
+                    scryfallId=card.scryfallId,
                     face=card.face
                 )
 
 if __name__ == '__main__':
-    download_images(sys.argv[1])
+    download_images(sys.argv[1], sys.argv[2])
