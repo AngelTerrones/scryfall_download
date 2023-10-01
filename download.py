@@ -5,9 +5,11 @@ import json
 import glob
 import requests
 from tqdm import tqdm
+from collections import namedtuple
 
 
 s = requests.Session()
+Card = namedtuple('Card', ['scryfallId', 'face'])
 
 
 def get_url(url: str):
@@ -50,7 +52,8 @@ def download_images(database):
     # data is grouped by set
     for set_name, set_data in cards.items():
         print(f'Downloading set: {set_name}')
-        downloaded_cards = set(glob.glob(f'images/{set_name.lower()}-*'))
+        downloaded_cards = set(map(os.path.basename, glob.glob(f'images/{set_name.lower()}-*')))
+        set_cards = dict()
         for card in tqdm(set_data['cards']):
             number    = card['number']
             name      = card.get('faceName', card['name'])
@@ -58,15 +61,20 @@ def download_images(database):
             card_name = card_name.replace('//', '-')
             if card_name in downloaded_cards:
                 continue
+            if card['language'] != 'English':
+                continue
             side       = card.get('side', 'a')
             face       = 'front' if side == 'a' else 'back'
             scryfallId = card['identifiers']['scryfallId']
+            set_cards[card_name] = Card(scryfallId=scryfallId, face=face)
+        disable = len(set_cards) == 0
+        for card_name, card in tqdm(set_cards.items(), disable=disable):
             # check if the card has hires image
-            if check_hires(scryfallId=scryfallId):
+            if check_hires(scryfallId=card.scryfallId):
                 download_card(
                     scryfallId=scryfallId,
                     card_name=card_name,
-                    face=face
+                    face=card.face
                 )
 
 if __name__ == '__main__':
